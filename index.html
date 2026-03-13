@@ -1,0 +1,171 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NOC Mobile 3.1</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@6.6.2"></script>
+
+<style>
+html,body{margin:0;height:100%;font-family:Segoe UI;background:#020617;}
+header{position:absolute;top:0;left:0;right:0;height:50px;background:#0f172a;color:white;
+display:flex;align-items:center;justify-content:center;z-index:1000;}
+
+#searchBox{position:absolute;top:50px;left:10px;right:10px;z-index:1001;}
+#search{width:100%;padding:10px;border-radius:8px;border:none;font-size:16px;}
+
+#results{position:absolute;top:90px;left:10px;right:10px;max-height:200px;overflow:auto;z-index:1002;}
+.result{background:#1e293b;color:white;padding:8px;margin-top:4px;border-radius:6px;}
+
+#map{position:absolute;top:90px;bottom:0;left:0;right:0;}
+
+.action{display:block;margin-top:6px;padding:6px;border-radius:6px;background:#2563eb;color:white;text-align:center;text-decoration:none;}
+
+.blink{animation:blink 1s infinite;}
+@keyframes blink{0%{opacity:1}50%{opacity:0.2}100%{opacity:1}}
+</style>
+</head>
+
+<body>
+
+<header>NOC Mobile 3.1</header>
+
+<div id="searchBox">
+<input id="search" placeholder="Buscar sitio">
+</div>
+
+<div id="results"></div>
+<div id="map"></div>
+
+<script>
+
+function shareSite(text,lat,lon){
+
+let url = "https://maps.apple.com/?daddr="+lat+","+lon;
+
+if(navigator.share){
+ navigator.share({
+   title:"Localidad",
+   text:text,
+   url:url
+ });
+}else{
+ alert(text + "\n" + url);
+}
+
+}
+
+fetch("data.json")
+.then(r=>r.json())
+.then(data=>{
+
+const map = L.map("map").setView([23.6,-102.5],5);
+
+const satellite = L.tileLayer(
+"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+{maxZoom:19}
+);
+
+const streets = L.tileLayer(
+"https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+{maxZoom:19}
+);
+
+satellite.addTo(map);
+
+L.control.layers({
+"Satélite": satellite,
+"Calles": streets
+}).addTo(map);
+
+function color(s){
+ if(s=="OK") return "#22c55e";
+ if(s=="RIESGO") return "#facc15";
+ return "#ef4444";
+}
+
+let markers=[];
+let bounds=[];
+
+data.forEach(r=>{
+
+ let lat=parseFloat(r.latitud);
+ let lon=parseFloat(r.longitud);
+ if(!lat||!lon) return;
+
+ let marker=L.circleMarker([lat,lon],{radius:6,color:color(r.infra_status),fillColor:color(r.infra_status),fillOpacity:1}).addTo(map);
+
+ if(r.infra_status=="CRITICO") marker._path?.classList.add("blink");
+
+ let phone=r["Primary Contact Mobile Numer  (SAC)"]||"";
+ let mail=r["Primary Contact Mail  (SAC)"]||"";
+ let direccion=r["Dirección"]||"";
+
+ let popup="<b>"+r["Site name"]+"</b><br>"+direccion+"<br>"+r.infra_status;
+
+ if(phone) popup+="<a class='action' href='tel:"+phone+"'>📞 Llamar</a>";
+ if(mail) popup+="<a class='action' href='mailto:"+mail+"'>📧 Email</a>";
+
+ popup+="<a class='action' target='_blank' href='https://maps.apple.com/?daddr="+lat+","+lon+"'>🧭 Ruta</a>";
+
+ let shareText = r["Site name"] + "\n" + direccion + "\nContacto: " + phone;
+
+ popup+="<a class='action' onclick='shareSite(`"+shareText+"`,"+lat+","+lon+")'>📤 Compartir</a>";
+
+ marker.bindPopup(popup);
+
+ marker.data=r;
+ markers.push(marker);
+ bounds.push([lat,lon]);
+
+});
+
+if(bounds.length>0) map.fitBounds(bounds);
+
+const fuse=new Fuse(data,{keys:["MEXI","Site name","Estado","Region"],threshold:0.3});
+
+document.getElementById("search").addEventListener("input",e=>{
+
+ let q=e.target.value;
+ let results=document.getElementById("results");
+ results.innerHTML="";
+
+ if(!q) return;
+
+ fuse.search(q).slice(0,10).forEach(r=>{
+
+   let site=r.item;
+   let div=document.createElement("div");
+   div.className="result";
+   div.innerHTML="<b>"+site.MEXI+"</b> - "+site["Site name"];
+
+   div.onclick=()=>{
+      let lat=parseFloat(site.latitud);
+      let lon=parseFloat(site.longitud);
+      map.flyTo([lat,lon],13);
+      markers.forEach(m=>{if(m.data===site)m.openPopup();});
+      results.innerHTML="";
+      document.getElementById("search").value="";
+   };
+
+   results.appendChild(div);
+
+ });
+
+});
+
+});
+
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js'); }
+
+</script>
+
+</body>
+</html>
